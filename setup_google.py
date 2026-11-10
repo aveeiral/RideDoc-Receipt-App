@@ -1,0 +1,128 @@
+"""One-time setup: connect the RideDoc app to Google Sheets.
+
+Usage (in the project folder):
+    python setup_google.py                      # uses service_account.json in this folder
+    python setup_google.py path\\to\\key.json
+
+It asks for the two Google Sheet links, writes .streamlit/secrets.toml,
+and tests that both sheets can be opened.
+"""
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+SECRETS = ROOT / ".streamlit" / "secrets.toml"
+KEY_FIELDS = ["type", "project_id", "private_key_id", "private_key", "client_email", "client_id",
+              "auth_uri", "token_uri", "auth_provider_x509_cert_url", "client_x509_cert_url", "universe_domain"]
+
+
+def fail(msg: str) -> None:
+    print(f"\nERROR: {msg}")
+    sys.exit(1)
+
+
+def toml_str(value: str) -> str:
+    # JSON string escaping is valid TOML basic-string escaping (keeps \n in the private key).
+    return json.dumps(str(value))
+
+
+def ask(prompt: str, required: bool = True) -> str:
+    while True:
+        value = input(prompt).strip().strip('"')
+        if value or not required:
+            return value
+        print("  Please enter a value.")
+
+
+def check_sheet(client, url: str, label: str):
+    import gspread
+
+    try:
+        sh = client.open_by_url(url)
+        sh.worksheets()
+        return sh
+    except gspread.SpreadsheetNotFound:
+        fail(f"{label}: sheet not found. Open it in Google Sheets -> Share -> add\n"
+             f"       {client.auth.service_account_email} as Editor, then run this again.")
+    except gspread.exceptions.APIError as e:
+        text = str(e)
+        if "not supported for this document" in text:
+            fail(f"{label}: this is an uploaded Excel (.xlsx) file, not a Google Sheet.\n"
+                 "       Open it -> File -> Save as Google Sheets, share the NEW sheet with the\n"
+                 "       service account, and use the new sheet's link.")
+        if "has not been used" in text or "is disabled" in text:
+            fail(f"{label}: the Google Sheets API or Google Drive API is not enabled in your\n"
+                 "       Google Cloud project. Enable both, wait a minute, and run this again.")
+        if "403" in text or "PERMISSION_DENIED" in text:
+            fail(f"{label}: no access. Share the sheet with {client.auth.service_account_email} as Editor.")
+        fail(f"{label}: {text}")
+    except gspread.exceptions.NoValidUrlKeyFound:
+        fail(f"{label}: that doesn't look like a Google Sheets link (https://docs.google.com/spreadsheets/d/...).")
+
+
+def main() -> None:
+    key_path = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "service_account.json"
+    if not key_path.exists():
+        fail(f"Key file not found: {key_path}\n"
+             "       Put the downloaded service account JSON in the project folder as service_account.json.")
+    try:
+        key = json.loads(key_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        fail(f"Could not read {key_path.name}: {e}")
+    if key.get("type") != "service_account" or "private_key" not in key:
+        fail(f"{key_path.name} is not a service account key (expected \"type\": \"service_account\").")
+
+    try:
+        import gspread
+    except ImportError:
+        fail("gspread is not installed. Run:  pip install -r requirements.txt")
+
+    print(f"Service account: {key['client_email']}")
+    print("Both sheets must be shared with this e-mail as Editor.\n")
+    bills_url = ask("Paste the link of the BILLS Google Sheet:        ")
+    prices_url = ask("Paste the link of the PRICE LIST (services) sheet: ")
+    tab = ask("Name of the tab with the rates (press Enter for the first tab): ", required=False)
+
+    print("\nTesting connection...")
+    client = gspread.service_account_from_dict(key)
+
+    prices = check_sheet(client, prices_url, "Price list sheet")
+    sys.path.insert(0, str(ROOT))
+    from ridedoc.catalog import parse_rows
+
+    try:
+        ws = prices.worksheet(tab) if tab else next(w for w in prices.worksheets() if w.title not in ("Bills", "Items"))
+    except gspread.WorksheetNotFound:
+        fail(f"Price list sheet has no tab called '{tab}'. Tabs: {[w.title for w in prices.worksheets()]}")
+    try:
+        catalog = parse_rows(ws.get_all_values(value_render_option="UNFORMATTED_VALUE"))
+    except Exception as e:
+        fail(f"Price list tab '{ws.title}' could not be read: {e}")
+    print(f"  OK  price list: tab '{ws.title}', {len(catalog.services)} services, "
+          f"{len(catalog.segments)} segments ({', '.join(s.code for s in catalog.segments)})")
+
+    bills = check_sheet(client, bills_url, "Bills sheet")
+    tabs = [w.title for w in bills.worksheets()]
+    print(f"  OK  bills sheet: '{bills.title}' (tabs: {', '.join(tabs)})")
+    if "Bills" not in tabs:
+        print("      The app will create the 'Bills' and 'Items' tabs on the first save.")
+
+    lines = ["# Generated by setup_google.py - keep this file private, never commit it.", "",
+             "[google_sheets]",
+             f"spreadsheet = {toml_str(bills_url)}",
+             f"services_spreadsheet = {toml_str(prices_url)}"]
+    if tab:
+        lines.append(f"services_tab = {toml_str(tab)}")
+    lines += ["", "[gcp_service_account]"]
+    lines += [f"{k} = {toml_str(key[k])}" for k in KEY_FIELDS if k in key]
+    SECRETS.parent.mkdir(exist_ok=True)
+    SECRETS.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    print(f"\nSaved settings to {SECRETS}")
+    print("Done! Restart the app:  python -m streamlit run app.py")
+    print("For Streamlit Cloud, paste the contents of that file into App -> Settings -> Secrets.")
+
+
+if __name__ == "__main__":
+    main()

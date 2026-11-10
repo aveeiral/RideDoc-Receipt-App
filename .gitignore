@@ -1,0 +1,8 @@
+# Customer data - never commit to GitHub
+data/bills_log.xlsx
+__pycache__/
+*.pyc
+# Google credentials - never commit
+.streamlit/secrets.toml
+service_account*.json
+*.json
