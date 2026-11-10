@@ -290,10 +290,16 @@ def load_bill(invoice_no: str) -> Bill | None:
                    for r in _rows("Bills") if _str(r[0]) == invoice_no), None)
     if record is None:
         return None
-    items = [LineItem(service=_str(r[2]), rate=_dec(r[3]), qty=int(float(r[4] or 0)),
-                      gst_rate=(Decimal(str(r[6])) / 100) if r[6] not in (None, "") else GST_RATE)
-             for r in (_pad(x, len(ITEM_HEADERS)) for x in _rows("Items"))
-             if _str(r[0]) == invoice_no]
+    items = []
+    for r in (_pad(x, len(ITEM_HEADERS)) for x in _rows("Items")):
+        if _str(r[0]) != invoice_no:
+            continue
+        item = LineItem(service=_str(r[2]), rate=_dec(r[3]), qty=int(float(r[4] or 0)),
+                        gst_rate=(Decimal(str(r[6])) / 100) if r[6] not in (None, "") else GST_RATE)
+        stored_total = _dec(r[8]) if r[8] not in (None, "") else None
+        if stored_total is not None and stored_total != item.total:
+            item.fixed_total = stored_total  # line was entered as a final amount
+        items.append(item)
     totals = BillTotals(
         subtotal=_dec(record["Sub Total"]),
         cgst_rate=Decimal(str(record["CGST %"] or 0)) / 100,

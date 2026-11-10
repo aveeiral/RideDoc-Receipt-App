@@ -30,20 +30,32 @@ class LineItem:
     rate: Decimal
     qty: int
     gst_rate: Decimal = GST_RATE
+    # Set when the user typed the final amount (incl. GST) for a custom service:
+    # the line total is then exactly this value and GST/taxable are derived from it.
+    fixed_total: Decimal | None = None
 
     @property
     def amount(self) -> Decimal:
-        """Taxable value: rate x qty."""
+        """Taxable value (before GST)."""
+        if self.fixed_total is not None:
+            return q(self.fixed_total / (1 + self.gst_rate))
         return q(self.rate * self.qty)
 
     @property
     def gst(self) -> Decimal:
+        if self.fixed_total is not None:
+            return q(self.fixed_total) - self.amount
         return q(self.amount * self.gst_rate)
 
     @property
     def total(self) -> Decimal:
         """Line amount including GST."""
         return self.amount + self.gst
+
+
+def rate_from_total(total: Decimal, qty: int, gst_rate: Decimal = GST_RATE) -> Decimal:
+    """Per-unit rate (before GST) that gives `total` incl. GST for `qty` units."""
+    return q(Decimal(total) / (1 + gst_rate) / max(qty, 1))
 
 
 @dataclass

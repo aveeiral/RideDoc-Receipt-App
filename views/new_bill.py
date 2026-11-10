@@ -5,7 +5,7 @@ from decimal import Decimal
 import streamlit as st
 
 from ridedoc import config, storage
-from ridedoc.billing import GST_RATE, Bill, LineItem, compute_totals, format_inr, format_rate, lookup_coupon, now_ist
+from ridedoc.billing import GST_RATE, rate_from_total, Bill, LineItem, compute_totals, format_inr, format_rate, lookup_coupon, now_ist
 from ridedoc.catalog import CatalogError
 from ridedoc.pdf import build_invoice_pdf
 from ridedoc.ui import get_catalog, page_header, price_list_source, reload_prices, show_pdf_preview
@@ -36,8 +36,29 @@ def _add_custom_row() -> None:
 
 def _remove_custom_row(cid: int) -> None:
     S.nb_custom_ids = [i for i in S.get("nb_custom_ids", []) if i != cid]
-    for k in (f"nb_cname_{cid}", f"nb_crate_{cid}", f"nb_cqty_{cid}"):
+    for k in (f"nb_cname_{cid}", f"nb_crate_{cid}", f"nb_camt_{cid}", f"nb_cqty_{cid}", f"nb_cmode_{cid}"):
         S.pop(k, None)
+
+
+# Custom row: Rate (before GST) and Amount (incl. GST) are both editable.
+# Whichever the user typed last drives the other one.
+def _custom_rate_changed(cid: int) -> None:
+    rate, qty = S.get(f"nb_crate_{cid}"), int(S.get(f"nb_cqty_{cid}") or 1)
+    S[f"nb_cmode_{cid}"] = "rate"
+    S[f"nb_camt_{cid}"] = (float(LineItem("", Decimal(str(round(rate, 2))), qty).total)
+                           if rate else None)
+
+
+def _custom_amount_changed(cid: int) -> None:
+    amount, qty = S.get(f"nb_camt_{cid}"), int(S.get(f"nb_cqty_{cid}") or 1)
+    S[f"nb_cmode_{cid}"] = "amount"
+    S[f"nb_crate_{cid}"] = float(rate_from_total(Decimal(str(round(amount, 2))), qty)) if amount else None
+
+
+def _custom_qty_changed(cid: int) -> None:
+    # Rate is per unit, so a new quantity keeps the rate and recalculates the amount.
+    if S.get(f"nb_crate_{cid}"):
+        _custom_rate_changed(cid)
 
 
 def _remove_coupon() -> None:
@@ -129,36 +150,50 @@ for svc_name in selected:
     cols[4].write(format_inr(item.gst))
     cols[5].write(format_inr(item.total))
 
-# Custom services: name and rate typed by the user.
+# Custom services: name typed by the user; enter either the Rate or the Amount.
+MAX_MONEY = 10_000_000.0
 for cid in custom_ids:
     n += 1
     cols = st.columns(WIDTHS, vertical_alignment="center")
     cols[0].write(n)
     cname = cols[1].text_input("Custom service name", key=f"nb_cname_{cid}", placeholder="Custom service name",
                                label_visibility="collapsed", disabled=locked).strip()
-    crate = cols[2].number_input("Rate", min_value=0.0, max_value=10_000_000.0, step=50.0, value=None,
+    crate = cols[2].number_input("Rate", min_value=0.0, max_value=MAX_MONEY, step=50.0, value=None,
                                  format="%.2f", placeholder="Rate", key=f"nb_crate_{cid}",
-                                 label_visibility="collapsed", disabled=locked)
+                                 on_change=_custom_rate_changed, args=(cid,),
+                                 label_visibility="collapsed", disabled=locked,
+                                 help="Rate per unit, before GST")
     cqty = cols[3].number_input("Quantity", min_value=1, max_value=999, step=1, value=1,
-                                key=f"nb_cqty_{cid}", label_visibility="collapsed", disabled=locked)
+                                key=f"nb_cqty_{cid}", on_change=_custom_qty_changed, args=(cid,),
+                                label_visibility="collapsed", disabled=locked)
+    camt = cols[5].number_input("Amount", min_value=0.0, max_value=MAX_MONEY, step=50.0, value=None,
+                                format="%.2f", placeholder="Amount", key=f"nb_camt_{cid}",
+                                on_change=_custom_amount_changed, args=(cid,),
+                                label_visibility="collapsed", disabled=locked,
+                                help="Final amount incl. GST — the rate is worked out for you")
     cols[6].button("🗑️", key=f"nb_cdel_{cid}", on_click=_remove_custom_row, args=(cid,),
                    help="Remove this row", disabled=locked)
-    if crate is not None and crate > 0:
-        item = LineItem(service=cname or "", rate=Decimal(str(round(crate, 2))), qty=int(cqty))
+
+    item = None
+    if S.get(f"nb_cmode_{cid}") == "amount" and camt:
+        item = LineItem(service=cname, rate=rate_from_total(Decimal(str(round(camt, 2))), int(cqty)),
+                        qty=int(cqty), fixed_total=Decimal(str(round(camt, 2))))
+    elif crate:
+        item = LineItem(service=cname, rate=Decimal(str(round(crate, 2))), qty=int(cqty))
+
+    if item is not None:
         cols[4].write(format_inr(item.gst))
-        cols[5].write(format_inr(item.total))
         if cname:
             items.append(item)
         else:
             custom_errors.append(f"Row {n}: enter a name for the custom service.")
     else:
         cols[4].write("—")
-        cols[5].write("—")
         if cname:
-            custom_errors.append(f"Row {n}: enter a rate for “{cname}”.")
+            custom_errors.append(f"Row {n}: enter a rate or amount for “{cname}”.")
 
 st.button("➕ Add custom service", on_click=_add_custom_row, disabled=locked,
-          help="Adds a blank row where you can type any service name and rate.")
+          help="Adds a blank row: type a service name, then either the rate or the final amount.")
 if not selected and not custom_ids:
     st.info("Select services from the list above, or add a custom service.")
 
