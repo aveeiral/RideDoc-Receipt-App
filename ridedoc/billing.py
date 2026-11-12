@@ -28,7 +28,7 @@ GST_RATE = config.CGST_RATE + config.SGST_RATE  # 18%, same for every service
 class LineItem:
     service: str
     rate: Decimal
-    qty: int
+    qty: Decimal | int  # whole number for price-list services; may be decimal (e.g. 3.2) for custom ones
     gst_rate: Decimal = GST_RATE
     # Set when the user typed the final amount (incl. GST) for a custom service:
     # the line total is then exactly this value and GST/taxable are derived from it.
@@ -53,9 +53,22 @@ class LineItem:
         return self.amount + self.gst
 
 
-def rate_from_total(total: Decimal, qty: int, gst_rate: Decimal = GST_RATE) -> Decimal:
+def rate_from_total(total: Decimal, qty, gst_rate: Decimal = GST_RATE) -> Decimal:
     """Per-unit rate (before GST) that gives `total` incl. GST for `qty` units."""
-    return q(Decimal(total) / (1 + gst_rate) / max(qty, 1))
+    qty = to_qty(qty)
+    return q(Decimal(total) / (1 + gst_rate) / (qty if qty > 0 else 1))
+
+
+def to_qty(value) -> Decimal | int:
+    """Quantity from a widget/sheet value: max 2 decimals; whole numbers stay int."""
+    d = Decimal(str(value if value not in (None, "") else 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return int(d) if d == d.to_integral() else d
+
+
+def format_qty(qty) -> str:
+    """3 -> '3', Decimal('3.20') -> '3.2', Decimal('1.85') -> '1.85'."""
+    qty = to_qty(qty)
+    return str(qty) if isinstance(qty, int) else f"{qty.normalize():f}"
 
 
 @dataclass

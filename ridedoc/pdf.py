@@ -5,7 +5,7 @@ from fpdf import FPDF, XPos, YPos
 from fpdf.fonts import FontFace
 
 from . import config
-from .billing import GST_RATE, Bill, amount_in_words, format_inr, format_rate
+from .billing import GST_RATE, format_qty, Bill, amount_in_words, format_inr, format_rate
 
 PAGE_W, PAGE_H = 210, 297
 MARGIN = 12
@@ -152,7 +152,7 @@ def _items_table(pdf: FPDF, bill: Bill) -> None:
             row.cell(str(n))
             row.cell(_t(item.service))
             row.cell(format_inr(item.rate))
-            row.cell(str(item.qty))
+            row.cell(format_qty(item.qty))
             row.cell(format_inr(item.gst))
             row.cell(format_inr(item.total))
     pdf.set_draw_color(0)

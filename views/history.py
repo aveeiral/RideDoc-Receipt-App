@@ -1,4 +1,6 @@
 """View saved bills, re-download any bill as PDF, export the whole log."""
+import hmac
+import time
 from datetime import date
 
 import pandas as pd
@@ -9,7 +11,48 @@ from ridedoc.billing import format_inr
 from ridedoc.pdf import build_invoice_pdf
 from ridedoc.ui import page_header, show_pdf_preview
 
+S = st.session_state
+
 page_header("Bill History")
+
+
+def _require_pin() -> None:
+    """Show a PIN form and stop the page until the correct PIN is entered (once per browser session)."""
+    if S.get("hist_unlocked"):
+        return
+    locked_until = S.get("hist_locked_until", 0.0)
+    _, mid, _ = st.columns([1, 1.4, 1])
+    with mid:
+        st.markdown("### 🔒 Enter PIN")
+        st.caption("Bill History contains customer details and is protected by a PIN.")
+        with st.form("hist_pin_form", clear_on_submit=True):
+            pin = st.text_input("PIN", type="password", max_chars=20, placeholder="Enter PIN")
+            submitted = st.form_submit_button("Unlock", type="primary", width="stretch")
+        if submitted:
+            now = time.time()
+            if now < locked_until:
+                st.error(f"Too many wrong attempts. Try again in {int(locked_until - now) + 1} seconds.")
+            elif hmac.compare_digest(pin.strip().encode(), config.history_pin().encode()):
+                S.hist_unlocked = True
+                S.hist_fails = 0
+                st.rerun()
+            else:
+                S.hist_fails = S.get("hist_fails", 0) + 1
+                left = config.PIN_MAX_ATTEMPTS - S.hist_fails
+                if left <= 0:
+                    S.hist_locked_until = now + config.PIN_LOCKOUT_SECONDS
+                    S.hist_fails = 0
+                    st.error(f"Too many wrong attempts. Locked for {config.PIN_LOCKOUT_SECONDS} seconds.")
+                else:
+                    st.error(f"Wrong PIN. {left} attempt{'s' if left != 1 else ''} left.")
+    st.stop()
+
+
+def _lock() -> None:
+    S.hist_unlocked = False
+
+
+_require_pin()
 
 try:
     df = storage.load_bills_df()
@@ -17,12 +60,13 @@ except Exception as e:  # no connection / corrupt file
     st.error(f"Could not read saved bills: {e}")
     st.stop()
 
-s1, s2 = st.columns([4, 1], vertical_alignment="center")
+s1, s2, s3 = st.columns([4, 1, 1], vertical_alignment="center")
 url = storage.storage_url()
 s1.caption(f"Bills are stored in **{storage.storage_name()}**" + (f" · [open sheet]({url})" if url else ""))
 if s2.button("🔄 Refresh", width="stretch"):
     storage.clear_cache()
     st.rerun()
+s3.button("🔒 Lock", on_click=_lock, width="stretch", help="Hide bill history until the PIN is entered again")
 
 if df.empty:
     st.info("No bills saved yet. Bills appear here after you save them on the **New Bill** page.")
@@ -93,7 +137,7 @@ b1.download_button("⬇️ Download PDF", data=pdf_bytes, file_name=f"{bill.invo
 preview = b2.toggle("👁️ Preview bill", value=True)
 
 st.dataframe(
-    pd.DataFrame([{"Service": i.service, "Rate": float(i.rate), "Qty": i.qty,
+    pd.DataFrame([{"Service": i.service, "Rate": float(i.rate), "Qty": float(i.qty),
                    "GST": float(i.gst), "Amount": float(i.total)} for i in bill.items]),
     hide_index=True, width="stretch",
     column_config={"Rate": money, "GST": money, "Amount": money},

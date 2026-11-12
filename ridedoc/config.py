@@ -61,3 +61,20 @@ def qr_path() -> Path | None:
 
 
 QR_CAPTION = "Scan to Pay"
+
+# ---- Bill History PIN -----------------------------------------------------
+# Default PIN. To keep it out of GitHub, set it in secrets instead:
+#   [app]
+#   history_pin = "your-pin"
+# (.streamlit/secrets.toml locally, App -> Settings -> Secrets on Streamlit Cloud)
+DEFAULT_HISTORY_PIN = "8840324500"
+PIN_MAX_ATTEMPTS = 5          # wrong tries before a short lock-out
+PIN_LOCKOUT_SECONDS = 60
+
+
+def history_pin() -> str:
+    try:
+        import streamlit as st
+        return str(st.secrets["app"]["history_pin"]).strip()
+    except Exception:  # no secrets file / no [app] section
+        return DEFAULT_HISTORY_PIN

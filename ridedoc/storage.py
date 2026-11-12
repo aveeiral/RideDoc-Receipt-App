@@ -25,7 +25,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 
 from . import config
-from .billing import GST_RATE, Bill, BillTotals, LineItem, q
+from .billing import GST_RATE, to_qty, Bill, BillTotals, LineItem, q
 
 BILL_HEADERS = [
     "Invoice No", "Date", "Time", "Customer Name", "Phone", "Vehicle Model",
@@ -258,7 +258,7 @@ def save_bill(bill: Bill) -> Bill:
             float(t.sgst_rate * 100), float(t.sgst), float(t.gross_total),
             t.coupon_code or "", float(t.discount), float(t.grand_total), len(bill.items),
         ]
-        item_rows = [[bill.invoice_no, n, i.service, float(i.rate), i.qty, float(i.amount),
+        item_rows = [[bill.invoice_no, n, i.service, float(i.rate), (i.qty if isinstance(i.qty, int) else float(i.qty)), float(i.amount),
                       float(i.gst_rate * 100), float(i.gst), float(i.total)]
                      for n, i in enumerate(bill.items, start=1)]
         try:
@@ -294,7 +294,7 @@ def load_bill(invoice_no: str) -> Bill | None:
     for r in (_pad(x, len(ITEM_HEADERS)) for x in _rows("Items")):
         if _str(r[0]) != invoice_no:
             continue
-        item = LineItem(service=_str(r[2]), rate=_dec(r[3]), qty=int(float(r[4] or 0)),
+        item = LineItem(service=_str(r[2]), rate=_dec(r[3]), qty=to_qty(r[4]),
                         gst_rate=(Decimal(str(r[6])) / 100) if r[6] not in (None, "") else GST_RATE)
         stored_total = _dec(r[8]) if r[8] not in (None, "") else None
         if stored_total is not None and stored_total != item.total:

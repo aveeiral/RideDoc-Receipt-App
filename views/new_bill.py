@@ -5,7 +5,7 @@ from decimal import Decimal
 import streamlit as st
 
 from ridedoc import config, storage
-from ridedoc.billing import GST_RATE, rate_from_total, Bill, LineItem, compute_totals, format_inr, format_rate, lookup_coupon, now_ist
+from ridedoc.billing import GST_RATE, rate_from_total, to_qty, Bill, LineItem, compute_totals, format_inr, format_rate, lookup_coupon, now_ist
 from ridedoc.catalog import CatalogError
 from ridedoc.pdf import build_invoice_pdf
 from ridedoc.ui import get_catalog, page_header, price_list_source, reload_prices, show_pdf_preview
@@ -43,14 +43,14 @@ def _remove_custom_row(cid: int) -> None:
 # Custom row: Rate (before GST) and Amount (incl. GST) are both editable.
 # Whichever the user typed last drives the other one.
 def _custom_rate_changed(cid: int) -> None:
-    rate, qty = S.get(f"nb_crate_{cid}"), int(S.get(f"nb_cqty_{cid}") or 1)
+    rate, qty = S.get(f"nb_crate_{cid}"), to_qty(S.get(f"nb_cqty_{cid}") or 1)
     S[f"nb_cmode_{cid}"] = "rate"
     S[f"nb_camt_{cid}"] = (float(LineItem("", Decimal(str(round(rate, 2))), qty).total)
                            if rate else None)
 
 
 def _custom_amount_changed(cid: int) -> None:
-    amount, qty = S.get(f"nb_camt_{cid}"), int(S.get(f"nb_cqty_{cid}") or 1)
+    amount, qty = S.get(f"nb_camt_{cid}"), to_qty(S.get(f"nb_cqty_{cid}") or 1)
     S[f"nb_cmode_{cid}"] = "amount"
     S[f"nb_crate_{cid}"] = float(rate_from_total(Decimal(str(round(amount, 2))), qty)) if amount else None
 
@@ -163,7 +163,8 @@ for cid in custom_ids:
                                  on_change=_custom_rate_changed, args=(cid,),
                                  label_visibility="collapsed", disabled=locked,
                                  help="Rate per unit, before GST")
-    cqty = cols[3].number_input("Quantity", min_value=1, max_value=999, step=1, value=1,
+    cqty = cols[3].number_input("Quantity", min_value=0.01, max_value=9999.0, step=0.1, value=1.0,
+                                format="%.2f", help="Decimals allowed, e.g. 3.2 or 1.8",
                                 key=f"nb_cqty_{cid}", on_change=_custom_qty_changed, args=(cid,),
                                 label_visibility="collapsed", disabled=locked)
     camt = cols[5].number_input("Amount", min_value=0.0, max_value=MAX_MONEY, step=50.0, value=None,
@@ -174,12 +175,13 @@ for cid in custom_ids:
     cols[6].button("🗑️", key=f"nb_cdel_{cid}", on_click=_remove_custom_row, args=(cid,),
                    help="Remove this row", disabled=locked)
 
+    cqty = to_qty(cqty)
     item = None
     if S.get(f"nb_cmode_{cid}") == "amount" and camt:
-        item = LineItem(service=cname, rate=rate_from_total(Decimal(str(round(camt, 2))), int(cqty)),
-                        qty=int(cqty), fixed_total=Decimal(str(round(camt, 2))))
+        item = LineItem(service=cname, rate=rate_from_total(Decimal(str(round(camt, 2))), cqty),
+                        qty=cqty, fixed_total=Decimal(str(round(camt, 2))))
     elif crate:
-        item = LineItem(service=cname, rate=Decimal(str(round(crate, 2))), qty=int(cqty))
+        item = LineItem(service=cname, rate=Decimal(str(round(crate, 2))), qty=cqty)
 
     if item is not None:
         cols[4].write(format_inr(item.gst))
