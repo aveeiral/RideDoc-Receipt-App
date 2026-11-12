@@ -67,7 +67,7 @@ QR_CAPTION = "Scan to Pay"
 #   [app]
 #   history_pin = "your-pin"
 # (.streamlit/secrets.toml locally, App -> Settings -> Secrets on Streamlit Cloud)
-DEFAULT_HISTORY_PIN = "8840324500"
+DEFAULT_HISTORY_PIN = "changedmypassword"
 PIN_MAX_ATTEMPTS = 5          # wrong tries before a short lock-out
 PIN_LOCKOUT_SECONDS = 60
 
