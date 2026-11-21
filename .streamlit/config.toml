@@ -1,3 +1,8 @@
-[theme]
-primaryColor = "#1F5C99"
-base = "light"
+[server]
+# Keep an unfinished bill for 2 hours after the phone/browser disconnects
+# (e.g. switching apps on mobile). Streamlit's default is only 120 seconds.
+disconnectedSessionTTL = 7200
+[server]
+# Keep an unfinished bill for 2 hours after the phone/browser disconnects
+# (e.g. switching apps on mobile). Streamlit's default is only 120 seconds.
+disconnectedSessionTTL = 7200

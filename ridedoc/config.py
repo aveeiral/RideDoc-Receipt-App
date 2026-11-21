@@ -37,6 +37,17 @@ VARIANT_NAMES = {"10": "Entry", "20": "Regular"}
 
 PAYMENT_MODES = ["Cash", "UPI", "Card"]
 
+# ---- Rows pre-filled on every new bill (price 0, entered by the user) ----
+# Rows still at Rs. 0 when the bill is saved are left off the bill.
+DEFAULT_BILL_ROWS = [
+    "Periodic Service Package",
+    "Oil Filter",
+    "Air Filter",
+    "AC Filter",
+    "Coolant",
+    "Brake Pad",
+]
+
 # India Standard Time (fixed offset; India has no daylight saving).
 # Streamlit Cloud servers run on UTC, so always use this for dates/times.
 IST = timezone(timedelta(hours=5, minutes=30))

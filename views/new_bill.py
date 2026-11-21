@@ -124,7 +124,17 @@ if unpriced:
 
 items: list[LineItem] = []
 custom_errors: list[str] = []
-custom_ids: list[int] = S.setdefault("nb_custom_ids", [])
+if "nb_custom_ids" not in S:
+    # Every new bill starts with the standard rows, price 0, for the user to fill in.
+    S.nb_custom_ids = list(range(1, len(config.DEFAULT_BILL_ROWS) + 1))
+    S.nb_custom_next = len(config.DEFAULT_BILL_ROWS)
+    S.nb_default_ids = set(S.nb_custom_ids)
+    for cid, row_name in zip(S.nb_custom_ids, config.DEFAULT_BILL_ROWS):
+        S[f"nb_cname_{cid}"] = row_name
+        S[f"nb_crate_{cid}"] = 0.0
+        S[f"nb_camt_{cid}"] = 0.0
+custom_ids: list[int] = S.nb_custom_ids
+default_ids: set[int] = S.get("nb_default_ids", set())
 WIDTHS = [0.5, 4.2, 1.5, 1.3, 1.5, 1.6, 0.5]
 
 if selected or custom_ids:
@@ -191,9 +201,11 @@ for cid in custom_ids:
             custom_errors.append(f"Row {n}: enter a name for the custom service.")
     else:
         cols[4].write("—")
-        if cname:
+        if cname and cid not in default_ids:  # standard rows left at 0 are simply not billed
             custom_errors.append(f"Row {n}: enter a rate or amount for “{cname}”.")
 
+if default_ids & set(custom_ids):
+    st.caption("Standard rows left at ₹0 are not printed on the bill. Use 🗑️ to remove any row.")
 st.button("➕ Add custom service", on_click=_add_custom_row, disabled=locked,
           help="Adds a blank row: type a service name, then either the rate or the final amount.")
 if not selected and not custom_ids:
