@@ -46,6 +46,8 @@ DEFAULT_BILL_ROWS = [
     "AC Filter",
     "Coolant",
     "Brake Pad",
+    "Engine Oil",
+    "Spark Plug",
 ]
 
 # India Standard Time (fixed offset; India has no daylight saving).
